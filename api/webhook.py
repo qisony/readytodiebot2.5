@@ -1,75 +1,68 @@
-# api/webhook.py
+# api/webhook.py (ФИНАЛЬНАЯ ВЕРСИЯ)
 
 import os
-import logging
 import json
-from http.server import BaseHTTPRequestHandler
+import asyncio
+import logging
 from telegram import Update
-from telegram.ext import Application
-
-# Импорт логики инициализации из bot.py
 from bot import setup_application
-# Импорт логики создания таблиц (для инициализации)
 from db_utils import create_tables
 
-# --- Настройка Telegram Application (ГЛОБАЛЬНО) ---
+# Настройка логирования для вывода в консоль Vercel
+logging.basicConfig(level=logging.INFO)
 
-# Загружаем токен из переменных окружения Vercel
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-application: Application = None
-
+APPLICATION = None
 
 def get_application():
     """Инициализирует и возвращает кэшированный экземпляр Application."""
-    global application
-    if application is None:
+    global APPLICATION
+    if APPLICATION is None:
         try:
-            # ВАЖНО: Вызываем создание таблиц. В бессерверной среде это запустится
-            # при первом холодном старте.
+            # Создание таблиц при холодном старте Vercel.
             create_tables()
-
-            application = setup_application(TOKEN)
+            APPLICATION = setup_application(TOKEN)
             logging.info("Telegram Application инициализирован.")
         except Exception as e:
-            logging.error(f"Ошибка инициализации Application: {e}")
-            application = None
-    return application
+            # Если ошибка здесь (например, DATABASE_URL неверный), логируем и возвращаем None
+            logging.error(f"Ошибка инициализации Application (проверьте переменные окружения): {e}")
+            APPLICATION = None
+    return APPLICATION
 
-
-# --- Vercel Serverless Handler (Точка входа) ---
-
-# Используем асинхронный Vercel/Python хендлер
-async def handler(request):
-    """Vercel Serverless Handler для обработки Telegram Webhook."""
-
+# Асинхронная функция для обработки запроса Telegram
+async def process_telegram_update(event):
+    """Парсит запрос от Vercel и передает его боту."""
     app = get_application()
 
     if app is None:
+        # Если Application не инициализировано, возвращаем 500
         return {'statusCode': 500, 'body': 'Application error'}
 
-    if request.method != 'POST':
+    if event.get('httpMethod') != 'POST':
         return {'statusCode': 405, 'body': 'Method Not Allowed'}
 
-    # Получаем тело запроса
     try:
-        # Vercel передает тело запроса через request.json() или request.get_data()
-        update_dict = await request.json()
-    except Exception:
-        logging.error("Не удалось декодировать JSON.")
-        return {'statusCode': 400, 'body': 'Invalid JSON'}
-
-    # Создаем и обрабатываем Update асинхронно
-    try:
-        update = Update.de_json(data=update_dict, bot=app.bot)
-
-        # Обрабатываем обновление. Поскольку мы внутри асинхронной функции Vercel,
-        # мы можем просто вызвать process_update().
+        # Стандартный способ получения JSON в Vercel
+        body = event.get('body')
+        update_json = json.loads(body)
+        update = Update.de_json(data=update_json, bot=app.bot)
+        
+        # Асинхронная обработка обновления
         await app.process_update(update)
 
-        # Важно: Webhook должен вернуть ответ 200 OK быстро.
+        # Важно: всегда возвращаем 200 OK быстро.
         return {'statusCode': 200, 'body': 'OK'}
-
+    
     except Exception as e:
-        # ЛОГИРУЕМ ОШИБКУ, но возвращаем 200 OK, чтобы Telegram не переотправлял запрос
+        # Логируем ошибку в логи Vercel, но возвращаем 200 OK в Telegram
+        logging.error(f"Error processing update (логика бота): {e}")
+        return {'statusCode': 200, 'body': 'Update processed with error'}
+
+# Синхронная точка входа Vercel
+def handler(event, context):
+    """Основная точка входа Vercel Serverless Function."""
+    # Используем asyncio.run() для запуска асинхронной логики
+    return asyncio.run(process_telegram_update(event))
         logging.error(f"Ошибка обработки обновления: {e}")
+
         return {'statusCode': 200, 'body': 'OK (Error logged)'}

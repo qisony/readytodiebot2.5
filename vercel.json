@@ -1,9 +1,15 @@
-# requirements.txt
-python-telegram-bot
-psycopg2-binary
-python-dotenv
-pyzbar
-Pillow
-qrcode
-fastapi  # <--- НОВОЕ
-python-multipart # <--- НОВОЕ (для корректной обработки файлов/фото)
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/webhook.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/webhook",
+      "dest": "api/webhook.py"
+    }
+  ]
+}

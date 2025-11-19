@@ -1,0 +1,9 @@
+# requirements.txt
+python-telegram-bot
+psycopg2-binary
+python-dotenv
+pyzbar
+Pillow
+qrcode
+fastapi  # <--- НОВОЕ
+python-multipart # <--- НОВОЕ (для корректной обработки файлов/фото)
